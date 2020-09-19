@@ -51,12 +51,9 @@ int8_t i2c_write(uint8_t reg_addr, const uint8_t *data, uint32_t len, void *intf
     return BME280_OK;
 }
 
-int8_t stream_sensor_data(struct bme280_dev *dev) {
+int8_t calibrate_sensor(struct bme280_dev *dev) {
     int8_t result = BME280_OK;
     uint8_t settings_sel = 0;
-    uint32_t req_delay;
-
-    struct bme280_data data;
 
     dev->settings.osr_h = BME280_OVERSAMPLING_1X;
     dev->settings.osr_p = BME280_OVERSAMPLING_16X;
@@ -66,13 +63,33 @@ int8_t stream_sensor_data(struct bme280_dev *dev) {
     settings_sel = BME280_OSR_PRESS_SEL | BME280_OSR_TEMP_SEL | BME280_OSR_HUM_SEL | BME280_FILTER_SEL;
 
     result = bme280_set_sensor_settings(settings_sel, dev);
+    return result;
+}
+
+void save_measurements(double temp, double humidity, double pressure) {
+    FILE *fp = fopen("out", "a+");
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    char timestring[64];
+    strftime(timestring, sizeof(timestring), "%c", tm);
+    printf("Salvou medidas às: %s\n", timestring);
+    fprintf(fp, "[%s] - %0.2lf C°, %0.2lf%%, %0.2lf hPa\n", timestring, temp, humidity, pressure * 0.01);
+    fclose(fp);
+}
+
+int8_t stream_sensor_data(struct bme280_dev *dev) {
+    int8_t result = BME280_OK;
+    uint32_t req_delay;
+
+    struct bme280_data data;
+
+    result = calibrate_sensor(dev);
     if (result != BME280_OK) {
         fprintf(stderr, "Erro ao configurar sensor. Código %+d\n", result);
         return result;
     }
 
     req_delay = bme280_cal_meas_delay(&dev->settings);
-
 
     int count = 0;
     double temp_sum = 0;
@@ -104,15 +121,8 @@ int8_t stream_sensor_data(struct bme280_dev *dev) {
             humidity_sum = humidity_sum / 10.0;
             pressure_sum = pressure_sum / 10.0;
 
-
-            FILE *fp = fopen("out", "a+");
-            time_t t = time(NULL);
-            struct tm *tm = localtime(&t);
-            char timestring[64];
-            strftime(timestring, sizeof(timestring), "%c", tm);
-            printf("Salvou medidas às: %s\n", timestring);
-            fprintf(fp, "[%s] - %0.2lf C°, %0.2lf%%, %0.2lf hPa\n", timestring, temp_sum, humidity_sum, pressure_sum * 0.01);
-            fclose(fp);
+            save_measurements(temp_sum, humidity_sum, pressure_sum);
+            
             count = 0;
             temp_sum = 0;
             humidity_sum = 0;
